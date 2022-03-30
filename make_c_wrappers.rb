@@ -30,6 +30,11 @@ class String
 	BANALIZE_MAP = { '\r' => '\n',
 			 '\t' => ' ' }
 
+	BRACKETS_TYPES = { '(' => :extension, ')' => :extension,
+			   '<' => :protocols, '>' => :protocols,
+			   ':' => :none, ' ' => :none }
+
+
 	def banalize
 		# doesn't work for non-chars
 		return(self) if self.size < 2
@@ -87,12 +92,6 @@ class String
 		token = []
 		result = []
 		inside_brackets = :none
-		brackets_types = { '(' => :extension,
-				   ')' => :extension,
-				   '<' => :protocols,
-				   '>' => :protocols,
-				   ':' => :none,
-				   ' ' => :none }
 
 		characters.each do |c|
 			token.push(c)
@@ -101,7 +100,7 @@ class String
 			case c
 			when '<', '(', ' ', ':'
 				if inside_brackets == :none
-					inside_brackets = brackets_types[c]
+					inside_brackets = BRACKETS_TYPES[c]
 
 					token.pop if c != ':'
 					result.push_if_not_empty(token.join)
@@ -112,7 +111,7 @@ class String
 						end
 				end
 			when '>', ')'				
-				if inside_brackets == brackets_types[c]
+				if inside_brackets == BRACKETS_TYPES[c]
 					result.push(token.join)
 					token = []
 
