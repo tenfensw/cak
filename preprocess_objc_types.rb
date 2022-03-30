@@ -1,3 +1,5 @@
+require 'json'
+
 class Array
 	def push_if_not_empty(*items)
 		items.each do |a|
@@ -8,7 +10,8 @@ end
 
 class String
 	BANNED_XNU_MACROS = [ 'API_DEPRECATED', 'API_DEPRECATED_WITH_REPLACEMENT',
-			      'API_AVAILABLE' ]
+			      'API_AVAILABLE', 'NS_FORMAT_FUNCTION',
+			      'API_UNAVAILABLE' ]
 
 	BANALIZE_MAP = { '\r' => '\n',
 			 '\t' => ' ' }
@@ -16,6 +19,11 @@ class String
 	BRACKETS_TYPES = { '(' => :extension, ')' => :extension,
 			   '<' => :protocols, '>' => :protocols,
 			   ':' => :none, ' ' => :none }
+
+
+	def camelize
+		return split(':').map { |e| "#{e.chars.first.upcase}#{e[1...]}" }.join
+	end
 
 	# yep, it's literally just a thing that trims the semicolon at the end
 	def remove_semicolon
@@ -32,8 +40,9 @@ class String
 	
 		BANNED_XNU_MACROS.each do |mc|
 			if result.include? mc
+				Cak.nputs "has #{mc}"
 				found_occurence = result.index(mc)
-				end_of_occurence = found_occurence + result[found_occurence...].index('(') + 1
+				end_of_occurence = found_occurence + result[found_occurence...].index('(').to_i + 1
 
 				# find the actual ending bracket
 				brackets_count = 1
@@ -192,7 +201,7 @@ module Cak
 			@path = path
 			@metainfo = []
 			@interfaces = {}
-			scan
+			scan(@path)
 		end
 
 		def inspect
@@ -211,7 +220,26 @@ module Cak
 		
 		def protocols
 			return filter_ifaces(:protocol)
-		end 
+		end
+
+		# load all potential relative headers
+		def load_imports
+			own_dirname = File.absolute_path(File.dirname(@path))
+		
+			@metainfo.select {|e| e[:type] == :import }.each do |imp|
+				bn = File.basename(imp[:path])
+				potentials = [ File.join(own_dirname, bn),
+					       File.join(own_dirname, imp[:path]) ]
+				Cak.nputs "attempt to load #{potentials}"
+
+				potentials.each do |fn|
+					scan(fn) if File.exist? fn
+				end
+			end
+
+			# avoid recursion
+			@metainfo.reject! {|e| e[:type] == :import }
+		end
 
 		private
 		def filter_ifaces(typesym)
@@ -223,18 +251,43 @@ module Cak
 		def make_method_schema(first_token, line)
 			result = { :static => (first_token == '+'),
 				   :arguments => [],
-				   :return_type => line.shift.no_ticks,
-				   :combined_name => line.select { |e| e.chars.last == ':' }.join }
+				   :return_type => line.shift.no_ticks.strip,
+				   :combined_name => line.select { |e| e.chars.last == ':' }.join,
+				   :c_friendly_name => nil }
 
-			# TODO: finish
+			# for non-argumented methods
+			if result[:combined_name].empty?
+				result[:combined_name] = line.first
+			end
+			
+			# make C-friendly name for prefixing and wrapping
+			result[:c_friendly_name] = result[:combined_name].camelize
+
+			argument = nil
+
+			line.each do |item|
+				if item.chars.last == ':'
+					argument = { :name => item[0...-1],
+						     :type => "void" }
+				elsif [ item.chars.first, item.chars.last ].join == '()'
+					argument[:type] = item.no_ticks.strip
+				elsif not argument.nil?
+					argument[:name] = item
+
+					# add the argument
+					result[:arguments].push(argument)
+					argument = nil
+				end
+			end
+			
 			return result			
 		end
 		
-		def scan
-			raise("File not found - #{@path}") if not File.exist? @path
+		def scan(path)
+			raise("File not found - #{path}") if not File.exist? path
 
 			# first read in the file properly
-			contents_raw = File.read(@path).no_comments.simplify_parse
+			contents_raw = File.read(path).no_comments.simplify_parse
 			contents = contents_raw.split("\n")
 
 			current_interface_name = nil
@@ -243,8 +296,8 @@ module Cak
 				if not line_raw.start_with? '//'
 					line_mod = line_raw.remove_xnu_macros.remove_inline_comments.strip
 					line = line_mod.remove_semicolon.tokenize_objc
-					puts line_raw
-					puts line.inspect
+					Cak.nputs line_raw
+					Cak.nputs line.inspect
 					first_token = line.shift.to_s
 	
 					case first_token.chars.first
@@ -259,7 +312,7 @@ module Cak
 
 						# TODO: remake into case-when
 						if ['@interface', '@protocol'].include? first_token
-							puts("warning! weird collision, new #{first_token} block (#{line}) when #{current_interface_name} is unfinished yet") if not current_interface_name.nil?
+							Cak.nputs("warning! weird collision, new #{first_token} block (#{line}) when #{current_interface_name} is unfinished yet") if not current_interface_name.nil?
 
 							iface_type = if first_token == '@protocol'
 									:protocol
@@ -280,11 +333,16 @@ module Cak
 								iface_def[:base] = basis
 							end
 
+							if [line.last.to_s.chars.first, line.last.to_s.chars.last].join == '<>'
+								# protocol conforms
+								iface_def[:conforms_to] = line.last.no_ticks.gsub(' ', '').split(',')
+							end
+
 							if not @interfaces.has_key? current_interface_name
 								@interfaces[current_interface_name] = iface_def
 							end
 						elsif first_token == '@end'
-							puts("warning! @end specified when not in block") if current_interface_name.nil?
+							Cak.nputs("warning! @end specified when not in block") if current_interface_name.nil?
 							current_interface_name = nil
 						end
 					when '+', '-'
@@ -299,6 +357,10 @@ module Cak
 		end
 	end
 
+	def self.nputs(*everything)
+		STDERR.puts everything.join(' ')
+	end
+
 	def self.usage
 		puts "Usage: ruby #{__FILE__} /path/to/Headers/Header.h"
 		exit 1
@@ -310,7 +372,8 @@ module Cak
 		usage if header_path.nil?
 
 		parser = ObjCHeaderParser.new(header_path)
-		puts parser
+		parser.load_imports
+		puts JSON.pretty_generate(parser.interfaces)
 	end
 end
 
