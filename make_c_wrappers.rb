@@ -1,32 +1,15 @@
 class Array
-	BANNED_XNU_MACROS = [ 'API_DEPRECATED', 'API_DEPRECATED_WITH_REPLACEMENT',
-			      'API_AVAILABLE' ]
-
 	def push_if_not_empty(*items)
 		items.each do |a|
 			self.push(a) if not a.empty?
 		end
 	end
-
-	# remove XNU Availability.h macros
-	def remove_xnu_macros
-		result = self
-		
-		BANNED_XNU_MACROS.each do |mc|
-			index = result.index(mc)
-
-			if (not index.nil?) and (index + 1) < result.size
-				# remove the mention of the macros
-				result.delete_at index + 1
-				result.delete_at index
-			end
-		end
-
-		return result
-	end
 end
 
 class String
+	BANNED_XNU_MACROS = [ 'API_DEPRECATED', 'API_DEPRECATED_WITH_REPLACEMENT',
+			      'API_AVAILABLE' ]
+
 	BANALIZE_MAP = { '\r' => '\n',
 			 '\t' => ' ' }
 
@@ -34,6 +17,49 @@ class String
 			   '<' => :protocols, '>' => :protocols,
 			   ':' => :none, ' ' => :none }
 
+	# remove all Availability.h XNU macros
+	def remove_xnu_macros
+		result = self
+	
+		BANNED_XNU_MACROS.each do |mc|
+			if result.include? mc
+				found_occurence = result.index(mc)
+				end_of_occurence = found_occurence + result[found_occurence...].index('(') + 1
+
+				# find the actual ending bracket
+				brackets_count = 1
+				while brackets_count > 0
+					end_of_occurence += 1
+
+					case result[end_of_occurence]
+					when '('
+						brackets_count += 1
+					when ')'
+						brackets_count -= 1
+					when nil
+						brackets_count = 0 # for some buggy old non-MRI Rubies
+						break
+					end
+				end
+
+				result = result[0...found_occurence] + result[end_of_occurence + 1...].to_s
+			end
+		end
+
+		return result
+	end
+
+	# remove C '//' comments
+	def remove_inline_comments
+		# TODO: make it ignore double quotes (rare occurence tho)
+
+		found_ones = self.index('//')
+		if not found_ones.nil?
+			return self[0...found_ones]
+		else
+			return self
+		end
+	end
 
 	def banalize
 		# doesn't work for non-chars
@@ -182,7 +208,9 @@ module Cak
 
 			contents.each do |line_raw|
 				if not line_raw.start_with? '//'
-					line = line_raw.strip.tokenize_objc.remove_xnu_macros
+					line_mod = line_raw.remove_xnu_macros.remove_inline_comments.strip
+					line = line_mod.tokenize_objc
+					puts line_raw
 					puts line.inspect
 					first_token = line.shift.to_s
 	
