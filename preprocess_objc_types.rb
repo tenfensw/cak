@@ -222,6 +222,10 @@ module Cak
 			return filter_ifaces(:protocol)
 		end
 
+		def everything
+			return @interfaces
+		end
+
 		# load all potential relative headers
 		def load_imports
 			own_dirname = File.absolute_path(File.dirname(@path))
@@ -373,7 +377,7 @@ module Cak
 
 		parser = ObjCHeaderParser.new(header_path)
 		parser.load_imports
-		puts JSON.pretty_generate(parser.interfaces)
+		puts JSON.pretty_generate(parser.everything)
 	end
 end
 
