@@ -17,6 +17,15 @@ class String
 			   '<' => :protocols, '>' => :protocols,
 			   ':' => :none, ' ' => :none }
 
+	# yep, it's literally just a thing that trims the semicolon at the end
+	def remove_semicolon
+		if chars.last == ';'
+			return self[0...-1]
+		else
+			return self
+		end
+	end
+
 	# remove all Availability.h XNU macros
 	def remove_xnu_macros
 		result = self
@@ -73,12 +82,12 @@ class String
 		return [' ', '\t'].include? self
 	end
 
-	# removes <> and "" from header includes
+	# removes <> and "" from header includes (as well as round brackets from ObjC return type defs)
 	def no_ticks
 		characters = chars
 		endings = [characters.shift, characters.pop]
 
-		return characters.join if ['""', '<>'].include? endings.join
+		return characters.join if ['""', '<>', '()'].include? endings.join
 		return self
 	end
 
@@ -178,8 +187,6 @@ module Cak
 	class ObjCHeaderParser
 		# all the neat non-interface info parsed out from the header (includes, etc)
 		attr_reader :metainfo
-		# interfaces and their methods
-		attr_reader :interfaces
 	
 		def initialize(path)
 			@path = path
@@ -189,14 +196,40 @@ module Cak
 		end
 
 		def inspect
-			return [@path, "Metainfo:", @metainfo, "Interfaces:", @interfaces].join("\n")
+			return [@path, "Metainfo:", @metainfo, "Interfaces:", interfaces,
+				"Protocols:", protocols].join("\n")
 		end
 
 		def to_s
 			return inspect
 		end
 
+		# interfaces and their methods
+		def interfaces
+			return filter_ifaces(:interface)
+		end
+		
+		def protocols
+			return filter_ifaces(:protocol)
+		end 
+
 		private
+		def filter_ifaces(typesym)
+			return @interfaces.select do |kv, vv|
+				vv[:type] == typesym
+			end
+		end
+		
+		def make_method_schema(first_token, line)
+			result = { :static => (first_token == '+'),
+				   :arguments => [],
+				   :return_type => line.shift.no_ticks,
+				   :combined_name => line.select { |e| e.chars.last == ':' }.join }
+
+			# TODO: finish
+			return result			
+		end
+		
 		def scan
 			raise("File not found - #{@path}") if not File.exist? @path
 
@@ -209,7 +242,7 @@ module Cak
 			contents.each do |line_raw|
 				if not line_raw.start_with? '//'
 					line_mod = line_raw.remove_xnu_macros.remove_inline_comments.strip
-					line = line_mod.tokenize_objc
+					line = line_mod.remove_semicolon.tokenize_objc
 					puts line_raw
 					puts line.inspect
 					first_token = line.shift.to_s
@@ -225,20 +258,24 @@ module Cak
 						# ObjC preprocessor block
 
 						# TODO: remake into case-when
-						if first_token == '@interface'
-							puts("warning! weird collision, new iface block (#{line}) when #{current_interface_name} is unfinished yet") if not current_interface_name.nil?
-	
-							iface_def = { :type => :interface,
+						if ['@interface', '@protocol'].include? first_token
+							puts("warning! weird collision, new #{first_token} block (#{line}) when #{current_interface_name} is unfinished yet") if not current_interface_name.nil?
+
+							iface_type = if first_token == '@protocol'
+									:protocol
+								     else
+								     	:interface
+								     end
+							iface_def = { :type => iface_type,
 								      :base => nil,
 								      :conforms_to => [],
-								      :static_methods => [],
 								      :methods => []
 								    }
  
 							# we are inside the interface block
 							current_interface_name = line.shift
 	
-							if line.first == ':'
+							if line.first == ':' and iface_type == :interface
 								basis = line.shift(2).last
 								iface_def[:base] = basis
 							end
@@ -250,6 +287,12 @@ module Cak
 							puts("warning! @end specified when not in block") if current_interface_name.nil?
 							current_interface_name = nil
 						end
+					when '+', '-'
+						# it's a method
+						raise("Method outside of interface scope, probably a parser error") if current_interface_name.nil?
+
+						method_schema = make_method_schema first_token, line
+						@interfaces[current_interface_name][:methods].push(method_schema)
 					end
 				end
 			end
