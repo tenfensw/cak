@@ -1,3 +1,31 @@
+class Array
+	BANNED_XNU_MACROS = [ 'API_DEPRECATED', 'API_DEPRECATED_WITH_REPLACEMENT',
+			      'API_AVAILABLE' ]
+
+	def push_if_not_empty(*items)
+		items.each do |a|
+			self.push(a) if not a.empty?
+		end
+	end
+
+	# remove XNU Availability.h macros
+	def remove_xnu_macros
+		result = self
+		
+		BANNED_XNU_MACROS.each do |mc|
+			index = result.index(mc)
+
+			if (not index.nil?) and (index + 1) < result.size
+				# remove the mention of the macros
+				result.delete_at index + 1
+				result.delete_at index
+			end
+		end
+
+		return result
+	end
+end
+
 class String
 	BANALIZE_MAP = { '\r' => '\n',
 			 '\t' => ' ' }
@@ -19,7 +47,7 @@ class String
 		characters = chars
 		endings = [characters.shift, characters.pop]
 
-		return characters.join('') if ['""', '<>'].include? endings.join('')
+		return characters.join if ['""', '<>'].include? endings.join
 		return self
 	end
 
@@ -49,7 +77,52 @@ class String
 			previous = c
 		end
 
-		return result.join('')
+		return result.join
+	end
+
+	# splits an ObjC definition line into tokens
+	def tokenize_objc
+		characters = chars
+		
+		token = []
+		result = []
+		inside_brackets = :none
+		brackets_types = { '(' => :extension,
+				   ')' => :extension,
+				   '<' => :protocols,
+				   '>' => :protocols,
+				   ':' => :none,
+				   ' ' => :none }
+
+		characters.each do |c|
+			token.push(c)
+
+			# TODO: optimize somehow
+			case c
+			when '<', '(', ' ', ':'
+				if inside_brackets == :none
+					inside_brackets = brackets_types[c]
+
+					token.pop if c != ':'
+					result.push_if_not_empty(token.join)
+					token = if inside_brackets == :none # ' ' or ':'
+							[]
+						else
+							[c]
+						end
+				end
+			when '>', ')'				
+				if inside_brackets == brackets_types[c]
+					result.push(token.join)
+					token = []
+
+					inside_brackets = :none
+				end
+			end
+		end
+
+		result.push_if_not_empty(token.join)
+		return result
 	end
 
 	# removes duplicate spaces + formats C pointers in a more comfy way
@@ -71,7 +144,7 @@ class String
 			end
 		end
 
-		return result.join('')
+		return result.join
 	end
 end
 
@@ -110,7 +183,8 @@ module Cak
 
 			contents.each do |line_raw|
 				if not line_raw.start_with? '//'
-					line = line_raw.strip.split(" ")
+					line = line_raw.strip.tokenize_objc.remove_xnu_macros
+					puts line.inspect
 					first_token = line.shift.to_s
 	
 					case first_token.chars.first
@@ -133,7 +207,7 @@ module Cak
 								      :static_methods => [],
 								      :methods => []
 								    }
-
+ 
 							# we are inside the interface block
 							current_interface_name = line.shift
 	
@@ -170,6 +244,4 @@ module Cak
 	end
 end
 
-if __FILE__ == $0
-	Cak.main
-end
+Cak.main if __FILE__ == $0
