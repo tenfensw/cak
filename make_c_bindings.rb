@@ -29,6 +29,31 @@ module Cak
 
 		
 	end
+
+	def self.main
+		headers_path = File.join(CLI_OPTIONS[:framework_path], 'Headers')
+		if not File.directory?(CLI_OPTIONS[:framework_path]) or not File.directory?(headers_path)
+			raise("Not a valid framework path - #{headers_path}")
+		end
+
+		# first find out the FW name
+		framework_name = File.basename(CLI_OPTIONS[:framework_path], '.*')
+
+		if CLI_OPTIONS[:headers_processed].size < 1
+			# by default we need the main FW header which is usually synonymous with its 
+			# name
+			CLI_OPTIONS[:headers_processed].push(File.join(headers_path, "#{framework_name}.h"))
+		end
+
+		CLI_OPTIONS[:headers_processed].each do |pr|
+			# use the parser
+			hps = ObjCHeaderParser.new(pr)
+			hps.load_imports
+			KNOWN_INTERFACES.push(*hps.everything)
+		end
+
+		puts KNOWN_INTERFACES
+	end
 end
 
 if __FILE__ == $0
@@ -58,4 +83,5 @@ if __FILE__ == $0
 	end.parse!
 
 	raise(OptionParser::MissingArgument.new('-f')) if Cak::CLI_OPTIONS[:framework_path].nil?
+	Cak.main
 end
