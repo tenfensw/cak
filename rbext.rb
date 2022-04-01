@@ -23,7 +23,7 @@ end
 class String
 	BANNED_XNU_MACROS = [ 'API_DEPRECATED', 'API_DEPRECATED_WITH_REPLACEMENT',
 			      'API_AVAILABLE', 'NS_FORMAT_FUNCTION',
-			      'API_UNAVAILABLE', 'NS_SWIFT_NAME' ]
+			      'API_UNAVAILABLE', 'NS_SWIFT_NAME', 'NS_NOESCAPE' ]
 
 	BANALIZE_MAP = { '\r' => '\n',
 			 '\t' => ' ' }
@@ -32,9 +32,37 @@ class String
 			   '<' => :protocols, '>' => :protocols,
 			   ':' => :none, ' ' => :none }
 
+	ENCLOSURE_TYPES = { '<' => '>',
+			    '[' => ']' }
+
 
 	def camelize
 		return split(':').map { |e| "#{e.chars.first.upcase}#{e[1...]}" }.join
+	end
+
+	def remove_all_objc_enclosures
+		inside_enclosure = nil
+		enclosure_count = 0
+		
+		result = []
+
+		chars.each do |c|
+			if inside_enclosure.nil?
+				if ENCLOSURE_TYPES.has_key? c
+					inside_enclosure = c
+					enclosure_count += 1
+				else
+					result.push(c)
+				end
+			elsif c == ENCLOSURE_TYPES[inside_enclosure]
+				enclosure_count -= 1
+				if enclosure_count < 1
+					inside_enclosure = nil
+				end
+			end
+		end
+
+		return result.join
 	end
 
 	# yep, it's literally just a thing that trims the semicolon at the end

@@ -1,7 +1,6 @@
 require_relative 'objcheaderparser'
 
 require 'optparse'
-require 'json'
 
 module Cak
 	CLI_OPTIONS = { :verbose => false,
@@ -10,24 +9,80 @@ module Cak
 			:output_metainfo => nil }
 
 	OBJC_IFACETYPE_BINDING = 'CakOID'
+	OBJC_IFACETYPE_BINDING_REF = "#{OBJC_IFACETYPE_BINDING}Ref"
+	OBJC_IFACETYPE_BINDING_ARGN = 'oidObjPInstance'
+	
+	OBJC_COMMON_TYPE_BINDINGS = { 'ObjectType' => 'void*',
+				      'id' => OBJC_IFACETYPE_BINDING_REF,
+				      'instancetype' => OBJC_IFACETYPE_BINDING_REF,
+				      'BOOL' => 'bool', # stdbool.h
+				      'SEL' => 'void*',
+				      'Class' => 'void*' }
+
+	OBJC_KEYWORD_BLACKLIST = [ '_Nonnull', '__unsafe_unretained', '_Nullable',
+				   'nullable' ]
 
 	KNOWN_INTERFACES = {}
 	
 	# turn it into a pure C type definition	
 	def self.make_c_type(arg)
-		
+		# first remove all the <> and []s
+		arg_mod = arg.remove_all_objc_enclosures
+
+		result = []
+		arg_mod.split(' ').each do |item|
+			if not OBJC_KEYWORD_BLACKLIST.include? item
+				if OBJC_COMMON_TYPE_BINDINGS.has_key? item
+					result.push OBJC_COMMON_TYPE_BINDINGS[item]
+				elsif KNOWN_INTERFACES.has_key? item[0...-1]
+					# replace with the OID wrapper
+					result.push(OBJC_IFACETYPE_BINDING_REF)
+				else
+					result.push(item)
+				end
+			end
+		end
+
+		return result.join(' ')
 	end
 
 	# parses the method metadata hash from ObjCHeaderParser and turns it into a proper
 	# C method more or less
-	def self.make_c_method(iface_name, method_meta)
+	def self.make_c_method(iface_name, method_meta, semicolon_at_the_end=true)
 		# result = { :static => (first_token == '+'),
 		#            :arguments => [],
 		#            :return_type => line.shift.no_ticks.strip,
 		#            :combined_name => line.select { |e| e.chars.last == ':' }.join,
 		#            :c_friendly_name => nil }
 
-		
+		nputs "converting #{method_meta}"
+		result = make_c_type(method_meta[:return_type])
+		result += ' ' + OBJC_IFACETYPE_BINDING + iface_name + method_meta[:c_friendly_name] + '('
+
+		# if non-static, then need an instance
+		if not method_meta[:static]
+			result += OBJC_IFACETYPE_BINDING_REF + ' ' + OBJC_IFACETYPE_BINDING_ARGN
+			result += ', ' if not method_meta[:arguments].empty?
+		end
+
+		args_converted = []
+		method_meta[:arguments].each do |arg|
+			# TODO: fix incorrect block handling the other way
+			pushed_arg = "#{make_c_type arg[:type]} #{arg[:name]}"
+
+			if pushed_arg.include? '('
+				pushed_arg = "void* " + arg[:name].chars.reject { |c| ['(', ')'].include? c }.join
+			end
+
+			args_converted.push(pushed_arg) if not pushed_arg.empty?
+		end
+
+		# C99 compliance
+		args_converted = ['void'] if args_converted.empty?
+
+		result += args_converted.join(', ') + ')'
+		result += ';' if semicolon_at_the_end
+		return result
 	end
 
 	def self.sync_interface_base_methods
@@ -65,6 +120,10 @@ module Cak
 		return result.join("\n")
 	end
 
+	def self.sync_interface_protocol_methods(known_protos)
+		# TODO
+	end
+
 	def self.main
 		headers_path = File.join(CLI_OPTIONS[:framework_path], 'Headers')
 		if not File.directory?(CLI_OPTIONS[:framework_path]) or not File.directory?(headers_path)
@@ -94,8 +153,19 @@ module Cak
 		# for each other
 
 		sync_interface_base_methods
+		sync_interface_protocol_methods known_protos
 
 		File.write(CLI_OPTIONS[:output_metainfo], pretty_print_metainfo(KNOWN_INTERFACES)) if not CLI_OPTIONS[:output_metainfo].nil?
+
+		KNOWN_INTERFACES.each do |iface_name, iface_vl|
+			puts "//\n// #{iface_name}\n//\n"
+
+			iface_vl[:methods].each do |mtd|
+				puts make_c_method(iface_name, mtd)
+			end
+
+			puts nil
+		end
 	end
 end
 

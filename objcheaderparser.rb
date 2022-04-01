@@ -89,7 +89,8 @@ module Cak
 						argument[:name] = item
 
 						# add the argument
-						result[:arguments].push(argument)
+						# TODO: properly fix block arguments
+						result[:arguments].push(argument) if not item.chars.first == ')'
 						argument = nil
 					end
 				end
