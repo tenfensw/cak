@@ -12,6 +12,12 @@ class Array
 			self.push(item) if not self.include? item
 		end
 	end
+
+	def push_if_not_duplicate_map_param(item, param)
+		if self.select {|s| s.is_a?(Hash) and s[param] == item[param] }.size < 1
+			self.push(item)
+		end
+	end
 end
 
 class String

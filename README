@@ -4,6 +4,6 @@ This will at least allow calling Cocoa from C directly, albeit with a lot of pai
 
 For now, the preprocessor thing works and parses ObjC interfaces into hash maps with tokenized functions. These can be in turn outputed to a JSON file like this:
 
- $ ruby preprocess_objc_types.rb /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/AppKit.framework/Headers/NSSlider.h > NSSlider.json
+   $ ruby make_c_bindings.rb --framework=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/Foundation.framework --output-metainfo=Foundation.txt -v
 
 Notice that this is WIP and it works only on a few headers for now.

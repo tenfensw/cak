@@ -11,7 +11,7 @@ module Cak
 
 	OBJC_IFACETYPE_BINDING = 'CakOID'
 
-	KNOWN_INTERFACES = []
+	KNOWN_INTERFACES = {}
 	
 	# turn it into a pure C type definition	
 	def self.make_c_type(arg)
@@ -30,6 +30,41 @@ module Cak
 		
 	end
 
+	def self.sync_interface_base_methods
+		KNOWN_INTERFACES.keys.each do |base|
+			herritage = KNOWN_INTERFACES.keys.select { |k| KNOWN_INTERFACES[k][:base] == base }
+
+			herritage.each do |iface_name|
+				KNOWN_INTERFACES[base][:methods].each do |mtd|
+					KNOWN_INTERFACES[iface_name][:methods].push_if_not_duplicate_map_param(mtd, :combined_name)
+				end
+			end
+		end
+	end
+
+	def self.pretty_print_metainfo(info)
+		result = []
+		
+		info.each do |iface_name, iface|
+			title = "@interface " + iface_name
+			title += " : #{iface[:base]}" if not iface[:base].nil?
+
+			result.push(title)
+
+			if not iface[:conforms_to].empty?
+				result.push("\t<conforms to #{iface[:conforms_to].join(', ')}>")
+			end
+
+			iface[:methods].each do |mtd|
+				prefix = mtd[:static] ? '+' : '-'
+				result.push("\t" + prefix + ' (' + mtd[:return_type] + ')' + mtd[:c_friendly_name])
+				result.push("\t" + mtd[:arguments].to_s)
+			end
+		end
+
+		return result.join("\n")
+	end
+
 	def self.main
 		headers_path = File.join(CLI_OPTIONS[:framework_path], 'Headers')
 		if not File.directory?(CLI_OPTIONS[:framework_path]) or not File.directory?(headers_path)
@@ -45,14 +80,22 @@ module Cak
 			CLI_OPTIONS[:headers_processed].push(File.join(headers_path, "#{framework_name}.h"))
 		end
 
+		known_protos = []
+
 		CLI_OPTIONS[:headers_processed].each do |pr|
 			# use the parser
 			hps = ObjCHeaderParser.new(pr)
 			hps.load_imports
-			KNOWN_INTERFACES.push(*hps.everything)
+			KNOWN_INTERFACES.merge! hps.interfaces
+			known_protos.push(*hps.protocols)
 		end
 
-		puts KNOWN_INTERFACES
+		# now sync up so that all the interfaces would have protocol/base interface methods
+		# for each other
+
+		sync_interface_base_methods
+
+		File.write(CLI_OPTIONS[:output_metainfo], pretty_print_metainfo(KNOWN_INTERFACES)) if not CLI_OPTIONS[:output_metainfo].nil?
 	end
 end
 
