@@ -1,6 +1,9 @@
 require_relative 'rbext'
 
 module Cak
+	ENUM_TRIGGERS = ['NS_OPTIONS', 'NS_ENUM', 
+			 'NS_TYPED_ENUM', 'NS_TYPED_EXTENSIBLE_ENUM']
+
 	# mini ObjC preprocessor to extract data from Cocoa fw headers
 	class ObjCHeaderParser
 		# all the neat non-interface info parsed out from the header (includes, etc)
@@ -31,6 +34,10 @@ module Cak
 			return filter_ifaces(:protocol)
 		end
 
+		def typedefs
+			return @metainfo.select { |i| i[:type] == :typedef }
+		end
+
 		def everything
 			return @interfaces
 		end
@@ -57,7 +64,7 @@ module Cak
 		private
 		def filter_ifaces(typesym)
 			return @interfaces.select do |kv, vv|
-				vv[:type] == typesym
+				(typesym == :interface and vv.nil?) or ((not vv.nil?) and vv[:type] == typesym)
 			end
 		end
 		
@@ -86,7 +93,7 @@ module Cak
 					if [ item.chars.first, item.chars.last ].join == '()'
 						argument[:type] = item.no_ticks.strip
 					else
-						argument[:name] = item
+						argument[:name] = item.chars.reject { |c| c == ',' }.join
 
 						# add the argument
 						# TODO: properly fix block arguments
@@ -144,10 +151,16 @@ module Cak
  
 							# we are inside the interface block
 							current_interface_name = line.shift
-	
-							if line.first == ':' and iface_type == :interface
-								basis = line.shift(2).last
-								iface_def[:base] = basis
+
+							# detect base for interface if needed
+							if iface_type == :interface
+								if line.first == ':'
+									basis = line.shift(2).last
+									iface_def[:base] = basis
+								elsif current_interface_name.end_with?(':')
+									iface_def[:base] = line.shift
+									current_interface_name = current_interface_name[0...-1]
+								end
 							end
 
 							if [line.last.to_s.chars.first, line.last.to_s.chars.last].join == '<>'
@@ -155,8 +168,19 @@ module Cak
 								iface_def[:conforms_to] = line.last.no_ticks.gsub(' ', '').split(',')
 							end
 
-							if not @interfaces.has_key? current_interface_name
+							if @interfaces[current_interface_name].nil?
 								@interfaces[current_interface_name] = iface_def
+							end
+						elsif first_token == '@class'
+							names = line.join(' ').split(',').map { |i| i.remove_all_objc_enclosures.strip }
+
+							names.each do |oname|
+								Cak.nputs "predefined interface #{oname}"
+	
+								# predefine it right now
+								if not @interfaces.has_key? oname
+									@interfaces[oname] = nil
+								end
 							end
 						elsif first_token == '@end'
 							Cak.nputs("warning! @end specified when not in block") if current_interface_name.nil?
@@ -168,6 +192,34 @@ module Cak
 
 						method_schema = make_method_schema first_token, line
 						@interfaces[current_interface_name][:methods].push(method_schema)
+					when 't'
+						if first_token == 'typedef'
+							# type definition, can be enum or sth
+							if line.first.start_with? 'NS_'
+								# TODO: polish
+								bracks = line[1][1...-1].split(',')
+								
+								# options enum
+								@metainfo.push({ :type => :typedef,
+										 :name => bracks.last.strip,
+										 :replacement => bracks.first.strip })
+							else
+								# remove enum meta
+								if line.last.end_with?('_ENUM') and line.last.start_with?('NS_')
+									line.pop
+								end
+							
+								actual_replacement = line.first
+								if actual_replacement == 'struct'
+									actual_replacement = [ line[0], line[1] ].join(' ')
+								end
+								
+								# classic typedef
+								@metainfo.push({ :type => :typedef,
+										 :name => line.pop,
+										 :replacement => actual_replacement })
+							end
+						end
 					end
 				end
 			end

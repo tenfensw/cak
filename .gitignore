@@ -3,7 +3,5 @@
 *~
 *.o
 *.json
-*.h
-*.m
-*.txt
-bindings
+bindings/*.m
+bindings/*.txt

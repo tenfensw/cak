@@ -6,6 +6,7 @@ module Cak
 	CLI_OPTIONS = { :verbose => false,
 			:framework_path => nil,
 			:headers_processed => [],
+			:additional_includes => [],
 			:output_metainfo => nil,
 			:output_imp => nil,
 			:oid_definition => true }
@@ -19,10 +20,23 @@ module Cak
 				      'instancetype' => OBJC_IFACETYPE_BINDING_REF,
 				      'BOOL' => 'bool', # stdbool.h
 				      'SEL' => 'void*',
-				      'Class' => 'void*' }
+				      'Class' => 'void*',
+				      'KeyType' => 'void*',
+				      'ValueType' => 'void*',
+				      'unichar' => 'uint16_t',
+				      'UTF32Char' => 'uint32_t',
+				      'UTF16Char' => 'uint16_t',
+				      'UTF8Char' => 'uint8_t',
+				      # some common types
+				      'NSInteger' => 'long',
+				      'NSUInteger' => 'unsigned long',
+				      # TODO: handle double ptrs correctly
+				      'NSError**' => 'void*',
+				      'NSZone*' => 'void*'
+				    }
 
 	OBJC_KEYWORD_BLACKLIST = [ '_Nonnull', '__unsafe_unretained', '_Nullable',
-				   'nullable', 'inout', 'out' ]
+				   'nullable', 'inout', 'out', 'null_unspecified' ]
 
 	KNOWN_INTERFACES = {}
 	
@@ -42,11 +56,15 @@ module Cak
 			end
 		
 			if not blacklisted
+				trimmed = item[0...-1]
+			
 				if OBJC_COMMON_TYPE_BINDINGS.has_key? item
 					result.push OBJC_COMMON_TYPE_BINDINGS[item]
-				elsif KNOWN_INTERFACES.has_key? item[0...-1]
+				elsif KNOWN_INTERFACES.has_key? trimmed
 					# replace with the OID wrapper
 					result.push(OBJC_IFACETYPE_BINDING_REF)
+				elsif item.chars.last == '*' and OBJC_COMMON_TYPE_BINDINGS.has_key? trimmed
+					result.push(OBJC_COMMON_TYPE_BINDINGS[trimmed] + '*')
 				else
 					result.push(item)
 				end
@@ -88,7 +106,7 @@ module Cak
 		end
 
 		# C99 compliance
-		args_converted = ['void'] if args_converted.empty?
+		args_converted = ['void'] if args_converted.empty? and method_meta[:static]
 
 		result += args_converted.join(', ') + ')'
 		result += ';' if semicolon_at_the_end
@@ -97,13 +115,23 @@ module Cak
 
 	def self.sync_interface_base_methods
 		KNOWN_INTERFACES.keys.each do |base|
-			herritage = KNOWN_INTERFACES.keys.select { |k| KNOWN_INTERFACES[k][:base] == base }
+			herritage = KNOWN_INTERFACES.keys.select { |k| (not KNOWN_INTERFACES[k].nil?) and KNOWN_INTERFACES[k][:base] == base }
 
-			herritage.each do |iface_name|
-				KNOWN_INTERFACES[base][:methods].each do |mtd|
-					KNOWN_INTERFACES[iface_name][:methods].push_if_not_duplicate_map_param(mtd, :combined_name)
+			# only sync if the interface was defined in any of the headers
+			if not KNOWN_INTERFACES[base].nil?
+				herritage.each do |iface_name|
+					KNOWN_INTERFACES[base][:methods].each do |mtd|
+						KNOWN_INTERFACES[iface_name][:methods].push_if_not_duplicate_map_param(mtd, :combined_name)
+					end
 				end
 			end
+		end
+	end
+
+	# idk, fswr .merge! doesn't really replace all the nil items properly
+	def self.properly_push_interfaces(ifaces)
+		ifaces.each do |inn, inv|
+			KNOWN_INTERFACES[inn] = inv if KNOWN_INTERFACES[inn].nil?
 		end
 	end
 
@@ -112,18 +140,23 @@ module Cak
 		
 		info.each do |iface_name, iface|
 			title = "@interface " + iface_name
-			title += " : #{iface[:base]}" if not iface[:base].nil?
+			if not iface.nil?
+				title += " : #{iface[:base]}" if not iface[:base].nil?
 
-			result.push(title)
+				result.push(title)
 
-			if not iface[:conforms_to].empty?
-				result.push("\t<conforms to #{iface[:conforms_to].join(', ')}>")
-			end
+				if not iface[:conforms_to].empty?
+					result.push("\t<conforms to #{iface[:conforms_to].join(', ')}>")
+				end
 
-			iface[:methods].each do |mtd|
-				prefix = mtd[:static] ? '+' : '-'
-				result.push("\t" + prefix + ' (' + mtd[:return_type] + ')' + mtd[:c_friendly_name])
-				result.push("\t" + mtd[:arguments].to_s)
+				iface[:methods].each do |mtd|
+					prefix = mtd[:static] ? '+' : '-'
+					result.push("\t" + prefix + ' (' + mtd[:return_type] + ')' + mtd[:c_friendly_name])
+					result.push("\t" + mtd[:arguments].to_s)
+				end
+			else
+				result.push(title)
+				result.push("\t<referenced interface, definition unknown>")
 			end
 		end
 
@@ -132,6 +165,18 @@ module Cak
 
 	def self.sync_interface_protocol_methods(known_protos)
 		# TODO
+	end
+
+	def self.import_typedefs(typedefs)
+		nputs "available typedefs to import: #{typedefs}"
+
+		typedefs.each do |td|
+			name = td[:name]
+			replacement = make_c_type td[:replacement]
+
+			nputs "typedef: #{name} = #{replacement}"
+			OBJC_COMMON_TYPE_BINDINGS[name] = replacement if not OBJC_COMMON_TYPE_BINDINGS.has_key? name
+		end
 	end
 
 	def self.main
@@ -161,8 +206,10 @@ module Cak
 			# use the parser
 			hps = ObjCHeaderParser.new(pr)
 			hps.load_imports
-			KNOWN_INTERFACES.merge! hps.interfaces
+			properly_push_interfaces hps.interfaces
+
 			known_protos.push(*hps.protocols)
+			import_typedefs hps.typedefs
 		end
 
 		implementations.push("#include \"#{framework_name}_cak.h\"", "")
@@ -178,7 +225,15 @@ module Cak
 
 		if CLI_OPTIONS[:oid_definition]
 			# include all the headers & structure declaration
-			puts "#include <stdbool.h>\n\n"
+			puts "#pragma once\n"
+			['arg', 'int', 'bool'].each do |fg|
+				puts "#include <std#{fg}.h>"
+			end
+			CLI_OPTIONS[:additional_includes].each do |hd|
+				puts "#include \"#{File.basename hd}\""
+			end
+			puts "\n"
+			
 			puts "typedef struct #{OBJC_IFACETYPE_BINDING}* #{OBJC_IFACETYPE_BINDING_REF};\n"
 
 			implementations.push("struct #{OBJC_IFACETYPE_BINDING} { id realThing; };", "")
@@ -186,14 +241,17 @@ module Cak
 
 
 		KNOWN_INTERFACES.each do |iface_name, iface_vl|
-			puts "//\n// #{iface_name}\n//\n"
+			# some interfaces could be not defined yet
+			if not iface_vl.nil?
+				puts "//\n// #{iface_name}\n//\n"
 
-			iface_vl[:methods].each do |mtd|
-				puts make_c_method(iface_name, mtd)
-				#implementations.push make_c_implementation(iface_name, mtd)
+				iface_vl[:methods].each do |mtd|
+					puts make_c_method(iface_name, mtd)
+					#implementations.push make_c_implementation(iface_name, mtd)
+				end
+
+				puts nil
 			end
-
-			puts nil
 		end
 	end
 end
@@ -208,6 +266,10 @@ if __FILE__ == $0
 		
 		op.on('-hHEADER', '--header=HEADER', 'Process specifically this header from the framework') do |hd|
 			Cak::CLI_OPTIONS[:headers_processed].push_if_not_duplicate(hd)
+		end
+
+		op.on('--additionally-include=HEADER', 'Include this header from the bindings') do |hd|
+			Cak::CLI_OPTIONS[:additional_includes].push_if_not_duplicate(hd)
 		end
 
 		op.on('--output-metainfo=PATH', 'Dump detected ObjC interface metainfo into a TXT file') do |pt|
