@@ -6,7 +6,9 @@ module Cak
 	CLI_OPTIONS = { :verbose => false,
 			:framework_path => nil,
 			:headers_processed => [],
-			:output_metainfo => nil }
+			:output_metainfo => nil,
+			:output_imp => nil,
+			:oid_definition => true }
 
 	OBJC_IFACETYPE_BINDING = 'CakOID'
 	OBJC_IFACETYPE_BINDING_REF = "#{OBJC_IFACETYPE_BINDING}Ref"
@@ -20,7 +22,7 @@ module Cak
 				      'Class' => 'void*' }
 
 	OBJC_KEYWORD_BLACKLIST = [ '_Nonnull', '__unsafe_unretained', '_Nullable',
-				   'nullable' ]
+				   'nullable', 'inout', 'out' ]
 
 	KNOWN_INTERFACES = {}
 	
@@ -31,7 +33,15 @@ module Cak
 
 		result = []
 		arg_mod.split(' ').each do |item|
-			if not OBJC_KEYWORD_BLACKLIST.include? item
+			blacklisted = false
+			OBJC_KEYWORD_BLACKLIST.each do |bl|
+				if item.start_with? bl
+					blacklisted = true
+					break
+				end
+			end
+		
+			if not blacklisted
 				if OBJC_COMMON_TYPE_BINDINGS.has_key? item
 					result.push OBJC_COMMON_TYPE_BINDINGS[item]
 				elsif KNOWN_INTERFACES.has_key? item[0...-1]
@@ -136,18 +146,26 @@ module Cak
 		if CLI_OPTIONS[:headers_processed].size < 1
 			# by default we need the main FW header which is usually synonymous with its 
 			# name
-			CLI_OPTIONS[:headers_processed].push(File.join(headers_path, "#{framework_name}.h"))
+			CLI_OPTIONS[:headers_processed].push("#{framework_name}.h")
 		end
 
+		CLI_OPTIONS[:headers_processed].map! { |item| File.join(headers_path, item) }
+
 		known_protos = []
+		# C binding implementations
+		implementations = []
 
 		CLI_OPTIONS[:headers_processed].each do |pr|
+			implementations.push("#import <#{framework_name}/#{File.basename pr}>")
+		
 			# use the parser
 			hps = ObjCHeaderParser.new(pr)
 			hps.load_imports
 			KNOWN_INTERFACES.merge! hps.interfaces
 			known_protos.push(*hps.protocols)
 		end
+
+		implementations.push("#include \"#{framework_name}_cak.h\"", "")
 
 		# now sync up so that all the interfaces would have protocol/base interface methods
 		# for each other
@@ -157,11 +175,22 @@ module Cak
 
 		File.write(CLI_OPTIONS[:output_metainfo], pretty_print_metainfo(KNOWN_INTERFACES)) if not CLI_OPTIONS[:output_metainfo].nil?
 
+
+		if CLI_OPTIONS[:oid_definition]
+			# include all the headers & structure declaration
+			puts "#include <stdbool.h>\n\n"
+			puts "typedef struct #{OBJC_IFACETYPE_BINDING}* #{OBJC_IFACETYPE_BINDING_REF};\n"
+
+			implementations.push("struct #{OBJC_IFACETYPE_BINDING} { id realThing; };", "")
+		end
+
+
 		KNOWN_INTERFACES.each do |iface_name, iface_vl|
 			puts "//\n// #{iface_name}\n//\n"
 
 			iface_vl[:methods].each do |mtd|
 				puts make_c_method(iface_name, mtd)
+				#implementations.push make_c_implementation(iface_name, mtd)
 			end
 
 			puts nil
@@ -181,8 +210,16 @@ if __FILE__ == $0
 			Cak::CLI_OPTIONS[:headers_processed].push_if_not_duplicate(hd)
 		end
 
-		op.on('--output-metainfo=PATH', 'Dump detected ObjC interface metainfo into a JSON file') do |pt|
+		op.on('--output-metainfo=PATH', 'Dump detected ObjC interface metainfo into a TXT file') do |pt|
 			Cak::CLI_OPTIONS[:output_metainfo] = pt
+		end
+
+		op.on('--output-implementation=PATH', 'Generate implementation for the bindings into a C source file') do |pt|
+			Cak::CLI_OPTIONS[:output_imp] = pt
+		end
+
+		op.on('--no-oid-definition', 'Do not include stdbool.h or define the ObjC wrapper ID structure') do
+			Cak::CLI_OPTIONS[:oid_definition] = false
 		end
 
 		op.on('-v', '--verbose', 'Be verbose') do

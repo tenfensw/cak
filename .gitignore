@@ -3,3 +3,7 @@
 *~
 *.o
 *.json
+*.h
+*.m
+*.txt
+bindings
