@@ -41,24 +41,17 @@ class String
 	end
 
 	def remove_all_objc_enclosures
-		inside_enclosure = nil
-		enclosure_count = 0
+		inside_enclosure = []
 		
 		result = []
 
 		chars.each do |c|
-			if inside_enclosure.nil?
-				if ENCLOSURE_TYPES.has_key? c
-					inside_enclosure = c
-					enclosure_count += 1
-				else
-					result.push(c)
-				end
-			elsif c == ENCLOSURE_TYPES[inside_enclosure]
-				enclosure_count -= 1
-				if enclosure_count < 1
-					inside_enclosure = nil
-				end
+			if ENCLOSURE_TYPES.has_key? c
+				inside_enclosure.push(c)
+			elsif inside_enclosure.empty?
+				result.push(c)
+			elsif c == ENCLOSURE_TYPES[inside_enclosure.last]
+				inside_enclosure.pop
 			end
 		end
 

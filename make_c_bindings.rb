@@ -30,9 +30,14 @@ module Cak
 				      # some common types
 				      'NSInteger' => 'long',
 				      'NSUInteger' => 'unsigned long',
+				      'K' => 'void*',
 				      # TODO: handle double ptrs correctly
+				      # TODO 2: handle function ptr typedefs correctly
 				      'NSError**' => 'void*',
-				      'NSZone*' => 'void*'
+				      'NSZone*' => 'void*',
+				      'NSFastEnumerationState*' => 'void*',
+				      'NSItemProviderLoadHandler' => 'void*',
+				      'NSItemProviderCompletionHandler' => 'void*'
 				    }
 
 	OBJC_KEYWORD_BLACKLIST = [ '_Nonnull', '__unsafe_unretained', '_Nullable',

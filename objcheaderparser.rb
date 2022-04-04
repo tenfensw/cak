@@ -116,7 +116,10 @@ module Cak
 			current_interface_name = nil
 
 			contents.each do |line_raw|
-				if not line_raw.start_with? '//'
+				# TODO: polish
+				is_deprecated = line_raw.include? 'API_DEPRECATED('
+
+				if not line_raw.start_with?('//') and not is_deprecated
 					line_mod = line_raw.remove_xnu_macros.remove_inline_comments.strip
 					line = line_mod.remove_semicolon.tokenize_objc
 					Cak.nputs line_raw
