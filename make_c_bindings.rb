@@ -20,6 +20,7 @@ module Cak
 				      'instancetype' => OBJC_IFACETYPE_BINDING_REF,
 				      'BOOL' => 'bool', # stdbool.h
 				      'SEL' => 'void*',
+				      'IBAction' => 'void',
 				      'Class' => 'void*',
 				      'KeyType' => 'void*',
 				      'ValueType' => 'void*',
@@ -27,6 +28,7 @@ module Cak
 				      'UTF32Char' => 'uint32_t',
 				      'UTF16Char' => 'uint16_t',
 				      'UTF8Char' => 'uint8_t',
+				      'CGFloat' => 'double',
 				      # some common types
 				      'NSInteger' => 'long',
 				      'NSUInteger' => 'unsigned long',
