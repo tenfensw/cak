@@ -44,6 +44,9 @@ module Cak
 				   'nullable', 'inout', 'out', 'null_unspecified' ]
 
 	KNOWN_INTERFACES = {}
+
+	# TODO: eliminate the need for this by improving the parser
+	BLACKLISTED_METHOD_PARAMS = []
 	
 	# turn it into a pure C type definition	
 	def self.make_c_type(arg)
@@ -251,8 +254,21 @@ module Cak
 				puts "//\n// #{iface_name}\n//\n"
 
 				iface_vl[:methods].each do |mtd|
-					puts make_c_method(iface_name, mtd)
-					#implementations.push make_c_implementation(iface_name, mtd)
+					banned = false
+
+					# check if there aren't any blacklisted args
+					BLACKLISTED_METHOD_PARAMS.each do |param|
+						if mtd[:combined_name].downcase.include? param.downcase
+							nputs "banned kw #{mtd[:combined_name]}, skipping"
+							banned = true
+							break
+						end
+					end
+				
+					if not banned
+						puts make_c_method(iface_name, mtd)
+						#implementations.push make_c_implementation(iface_name, mtd)
+					end
 				end
 
 				puts nil
@@ -279,6 +295,28 @@ if __FILE__ == $0
 
 		op.on('--output-metainfo=PATH', 'Dump detected ObjC interface metainfo into a TXT file') do |pt|
 			Cak::CLI_OPTIONS[:output_metainfo] = pt
+		end
+
+		op.on('--class=CLASSES', 'Predefine these ObjC interfaces as existing classes') do |pt|
+			pt.split(',').each do |cl|
+				Cak::KNOWN_INTERFACES[cl] = { :base => nil,
+							 :conforms_to => [],
+							 :methods => [],
+							 :origin => '<CLI parameters>',
+							 :type => :interface }
+			end
+		end
+
+		op.on('--blacklist-arguments=ARGUMENTS', 'Blacklist ObjC interface methods that have these arguments (do not make bindings for them)') do |pt|
+			pt.split(',').each do |nm|
+				if nm.chars.last == ':'
+					Cak::BLACKLISTED_METHOD_PARAMS.push(nm)
+				else
+					raise("--blacklist-arguments only accepts ObjC argument definitions (NAME:)")
+				end
+			end
+
+			Cak.nputs Cak::BLACKLISTED_METHOD_PARAMS, "blacklisted"
 		end
 
 		op.on('--output-implementation=PATH', 'Generate implementation for the bindings into a C source file') do |pt|
