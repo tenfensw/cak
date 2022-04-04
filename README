@@ -1,9 +1,0 @@
-This is WIP so far, the plan is to automatically parse Apple's ObjC frameworks' headers and wrap them around in C functions.
-
-This will at least allow calling Cocoa from C directly, albeit with a lot of pain related to using its native types (especially strings). Obviously, the goal of this entire project eventually is to make proper handwritten bindings not necessary conforming to Apple's APIs wrapped around these direct C/Cocoa proxy functions so that it would be possible to make Mac apps in pure C with little pain.
-
-For now, the preprocessor thing works and parses ObjC interfaces into hash maps with tokenized functions. These can be in turn outputed to a JSON file like this:
-
-   $ ruby make_c_bindings.rb --framework=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/Foundation.framework --output-metainfo=Foundation.txt -v
-
-Notice that this is WIP and it works only on a few headers for now.
