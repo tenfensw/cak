@@ -140,15 +140,27 @@ module Cak
 
 	# creates a proper C bindings
 	def self.make_c_implementation(iface_name, method_meta)
+		# first C-ify all the meta info
 		args = convert_to_c_args method_meta
 		heading = make_c_method(iface_name, method_meta, false)
 
+		# prepare to map ObjC params <-> C ones
 		params_mapped = method_meta[:combined_name].split(':')
 
-		fun_result = "return ["
-		fun_result += (method_meta[:static] ? iface_name : "(#{iface_name}*)(#{OBJC_IFACETYPE_BINDING_ARGN}->#{OBJC_IFACETYPE_BINDING_PARAM})")
+		# additional checks like no NULL instance, etc
+		fun_body = []
+		fun_id_arg = (method_meta[:static] ? nil : args.shift[:name])
+		fun_return_type = make_c_type(method_meta[:return_type])
 
-		args.shift if not method_meta[:static]
+		# whose method shall be called underneath
+		fun_objectee = (method_meta[:static] ? iface_name : "(#{iface_name}*)(#{fun_id_arg}->#{OBJC_IFACETYPE_BINDING_PARAM})")
+
+		if not method_meta[:static]
+			# TODO: very absurd workaround, needs to be fixed ASAP
+			fun_body.push("if (!#{fun_id_arg}) { return 0; }") if fun_return_type != 'NSRange'
+		end
+		
+		fun_result = "[#{fun_objectee}"
 
 		if not args.empty?
 			count = -1 # for the mapped params
@@ -172,9 +184,27 @@ module Cak
 			fun_result += 'nil' if fun_result.chars.last == ':'
 		end
 
-		fun_result += '];'
+		fun_result += ']'
 
-		result = "#{heading} {\n\t#{fun_result}\n}\n"
+		# in this case, we need to wrap the thing around
+		if fun_return_type == OBJC_IFACETYPE_BINDING_REF
+			# TODO: refactor
+			fun_body.push("void* #{OBJC_IFACETYPE_BINDING_PARAM}ToReturn = #{fun_result};")
+			if not method_meta[:static]
+				fun_body.push("if (#{OBJC_IFACETYPE_BINDING_PARAM}ToReturn == #{fun_id_arg}->#{OBJC_IFACETYPE_BINDING_PARAM}) {")
+				fun_body.push("\treturn #{fun_id_arg};")
+				fun_body.push("}")
+			end
+			fun_body.push("#{OBJC_IFACETYPE_BINDING_REF} #{OBJC_IFACETYPE_BINDING_PARAM}Wrapper = malloc(sizeof(struct #{OBJC_IFACETYPE_BINDING}));")
+			fun_body.push("#{OBJC_IFACETYPE_BINDING_PARAM}Wrapper->#{OBJC_IFACETYPE_BINDING_PARAM} = #{OBJC_IFACETYPE_BINDING_PARAM}ToReturn;")
+			fun_body.push("return #{OBJC_IFACETYPE_BINDING_PARAM}Wrapper;")
+		else
+			fun_body.push("return #{fun_result};")
+		end
+
+		result = "#{heading} {\n"
+		result += fun_body.map { |i| "\t#{i}" }.join("\n")
+		result += "\n}\n"
 		return result
 	end
 
@@ -278,6 +308,7 @@ module Cak
 		end
 
 		implementations.push("#include \"#{File.basename CLI_OPTIONS[:output_imp], '.*'}.h\"", "") if not CLI_OPTIONS[:output_imp].nil?
+		implementations.push("#include <stdlib.h>")
 
 		# now sync up so that all the interfaces would have protocol/base interface methods
 		# for each other
@@ -308,7 +339,7 @@ module Cak
 				puts "//\n// #{iface_name}\n//\n"
 
 				iface_vl[:methods].each do |mtd|
-					banned = BLACKLISTED_METHODS.include? "#{iface_name}@#{mtd[:combined_name]}"
+					banned = BLACKLISTED_METHODS.include?("#{iface_name}@#{mtd[:combined_name]}")
 
 					# check if there aren't any blacklisted args
 					BLACKLISTED_METHOD_PARAMS.each do |param|

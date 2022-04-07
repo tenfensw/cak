@@ -5,5 +5,5 @@
 *.json
 bindings
 *.log
-demo
+*.bin
 *.dSYM

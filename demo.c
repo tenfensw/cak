@@ -6,8 +6,7 @@ typedef struct _NSRange NSRange; // TODO: fix
 #define kCakOIDNSUnicodeStringEncoding 10
 
 int main() {
-	CakOIDRef testString = CakOIDNSStringAlloc();
-	CakOIDNSStringInitWithUTF8String(testString, "Greetings from Cak!");
+	CakOIDRef testString = CakOIDNSStringRetain(CakOIDNSStringStringWithUTF8String("Greetings from Cak!"));
 
 	printf("%s\n", CakOIDNSStringCStringUsingEncoding(testString, kCakOIDNSUnicodeStringEncoding));
 

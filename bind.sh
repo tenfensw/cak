@@ -5,7 +5,11 @@ APPKIT_PATH=$BASE_PATH/AppKit.framework
 
 FOUNDATION_BLACKLIST_PARAM="usingComparator:"
 
+rm -rfv *.dSYM *.bin
 test -d bindings && rm -rfv bindings
+
+test "$1" = "distclean" && exit 0
+
 mkdir -vp bindings
 
 # Foundation.framework -> minifoundation
@@ -24,9 +28,9 @@ ruby make_c_bindings.rb -f"$FOUNDATION_PATH" --header=NSObject.h \
 
 clang -c -o bindings/minifoundation.o -Wno-incompatible-pointer-types -Wno-objc-method-access \
 				      -Wno-return-type -Wno-format-security -fno-objc-arc \
-				      -Ibindings bindings/minifoundation.m
+				      -Ibindings -g bindings/minifoundation.m
 ar crs bindings/minifoundation.a bindings/minifoundation.o && rm -f bindings/minifoundation.o
-clang -o demo -g -fno-objc-arc -Ibindings -framework Foundation demo.c bindings/minifoundation.a
+clang -o demo.bin -g -fno-objc-arc -Ibindings -framework Foundation demo.c bindings/minifoundation.a
 
 APPKIT_PREDEFINED_CLASSES=`cat bindings/minifoundation.txt | grep '@interface *' | cut -d ' ' -f2 | xargs printf '\-\-class=%s '`
 
