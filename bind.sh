@@ -18,8 +18,15 @@ ruby make_c_bindings.rb -f"$FOUNDATION_PATH" --header=NSObject.h \
 					     --header=NSArray.h \
 					     --header=NSDictionary.h \
 					     -v --blacklist-arguments="$FOUNDATION_BLACKLIST_PARAM" \
+					     --blacklist-methods="NSLocale@init" \
 					     --output-metainfo=bindings/minifoundation.txt \
 					     --output-implementation=bindings/minifoundation.m > bindings/minifoundation.h
+
+clang -c -o bindings/minifoundation.o -Wno-incompatible-pointer-types -Wno-objc-method-access \
+				      -Wno-return-type -Wno-format-security -fno-objc-arc \
+				      -Ibindings bindings/minifoundation.m
+ar crs bindings/minifoundation.a bindings/minifoundation.o && rm -f bindings/minifoundation.o
+clang -o demo -g -fno-objc-arc -Ibindings -framework Foundation demo.c bindings/minifoundation.a
 
 APPKIT_PREDEFINED_CLASSES=`cat bindings/minifoundation.txt | grep '@interface *' | cut -d ' ' -f2 | xargs printf '\-\-class=%s '`
 

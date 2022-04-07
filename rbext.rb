@@ -13,7 +13,7 @@ class Array
 		end
 	end
 
-	def push_if_not_duplicate_map_param(item, param)
+	def push_if_hash_is_not_there(item, param)
 		if self.select {|s| s.is_a?(Hash) and s[param] == item[param] }.size < 1
 			self.push(item)
 		end

@@ -6,7 +6,6 @@ module Cak
 	CLI_OPTIONS = { :verbose => false,
 			:framework_path => nil,
 			:headers_processed => [],
-			:additional_includes => [],
 			:output_metainfo => nil,
 			:output_imp => nil,
 			:oid_definition => true }
@@ -14,6 +13,7 @@ module Cak
 	OBJC_IFACETYPE_BINDING = 'CakOID'
 	OBJC_IFACETYPE_BINDING_REF = "#{OBJC_IFACETYPE_BINDING}Ref"
 	OBJC_IFACETYPE_BINDING_ARGN = 'oidObjPInstance'
+	OBJC_IFACETYPE_BINDING_PARAM = 'rth'
 	
 	OBJC_COMMON_TYPE_BINDINGS = { 'ObjectType' => 'void*',
 				      'id' => OBJC_IFACETYPE_BINDING_REF,
@@ -49,6 +49,7 @@ module Cak
 
 	# TODO: eliminate the need for this by improving the parser
 	BLACKLISTED_METHOD_PARAMS = []
+	BLACKLISTED_METHODS = []
 	
 	# turn it into a pure C type definition	
 	def self.make_c_type(arg)
@@ -84,6 +85,36 @@ module Cak
 		return result.join(' ')
 	end
 
+	# converts preprocessed arguments into valid C ones
+	def self.convert_to_c_args(method_meta)
+		result = []
+
+		# self-ref in case of a non-static method
+		if not method_meta[:static]
+			result.push({ :name => OBJC_IFACETYPE_BINDING_ARGN, :type => OBJC_IFACETYPE_BINDING_REF,
+				      :c_pair => "#{OBJC_IFACETYPE_BINDING_REF} #{OBJC_IFACETYPE_BINDING_ARGN}" })
+		end
+
+		method_meta[:arguments].each do |arg_raw|
+			# TODO: optimize
+			arg = { :name => arg_raw[:name], :type => make_c_type(arg_raw[:type]),
+				:c_pair => nil }
+
+			arg[:c_pair] = "#{arg[:type]} #{arg[:name]}"
+
+			if arg[:c_pair].include? '('
+				# TODO: fix incorrect block handling the other way
+				arg[:name] = arg[:name].chars.reject { |c| ['(', ')'].include? c }.join
+				arg[:type] = 'void*'
+				arg[:c_pair] = [ arg[:type], arg[:name] ].join(' ')
+			end
+
+			result.push(arg) if not arg.empty?
+		end
+
+		return result
+	end
+
 	# parses the method metadata hash from ObjCHeaderParser and turns it into a proper
 	# C method more or less
 	def self.make_c_method(iface_name, method_meta, semicolon_at_the_end=true)
@@ -97,29 +128,53 @@ module Cak
 		result = make_c_type(method_meta[:return_type])
 		result += ' ' + OBJC_IFACETYPE_BINDING + iface_name + method_meta[:c_friendly_name] + '('
 
-		# if non-static, then need an instance
-		if not method_meta[:static]
-			result += OBJC_IFACETYPE_BINDING_REF + ' ' + OBJC_IFACETYPE_BINDING_ARGN
-			result += ', ' if not method_meta[:arguments].empty?
-		end
-
-		args_converted = []
-		method_meta[:arguments].each do |arg|
-			# TODO: fix incorrect block handling the other way
-			pushed_arg = "#{make_c_type arg[:type]} #{arg[:name]}"
-
-			if pushed_arg.include? '('
-				pushed_arg = "void* " + arg[:name].chars.reject { |c| ['(', ')'].include? c }.join
-			end
-
-			args_converted.push(pushed_arg) if not pushed_arg.empty?
-		end
+		args_converted = convert_to_c_args(method_meta).map { |i| i[:c_pair] }
 
 		# C99 compliance
 		args_converted = ['void'] if args_converted.empty? and method_meta[:static]
 
 		result += args_converted.join(', ') + ')'
 		result += ';' if semicolon_at_the_end
+		return result
+	end
+
+	# creates a proper C bindings
+	def self.make_c_implementation(iface_name, method_meta)
+		args = convert_to_c_args method_meta
+		heading = make_c_method(iface_name, method_meta, false)
+
+		params_mapped = method_meta[:combined_name].split(':')
+
+		fun_result = "return ["
+		fun_result += (method_meta[:static] ? iface_name : "(#{iface_name}*)(#{OBJC_IFACETYPE_BINDING_ARGN}->#{OBJC_IFACETYPE_BINDING_PARAM})")
+
+		args.shift if not method_meta[:static]
+
+		if not args.empty?
+			count = -1 # for the mapped params
+			args.each do |arg|
+				count += 1
+				matching_param = params_mapped[count]
+	
+				# merge param with casted arg name
+				to_add = [ matching_param, arg[:name] ]
+
+				if arg[:type] == OBJC_IFACETYPE_BINDING_REF
+					# access the underlying ObjC class instance in this case
+					to_add.pop
+					to_add.push("#{arg[:name]}->#{OBJC_IFACETYPE_BINDING_PARAM}")
+				end
+				fun_result += ' ' + to_add.join(':')
+			end
+		else
+			# just call the message instead
+			fun_result += ' ' + method_meta[:combined_name]
+			fun_result += 'nil' if fun_result.chars.last == ':'
+		end
+
+		fun_result += '];'
+
+		result = "#{heading} {\n\t#{fun_result}\n}\n"
 		return result
 	end
 
@@ -131,7 +186,7 @@ module Cak
 			if not KNOWN_INTERFACES[base].nil?
 				herritage.each do |iface_name|
 					KNOWN_INTERFACES[base][:methods].each do |mtd|
-						KNOWN_INTERFACES[iface_name][:methods].push_if_not_duplicate_map_param(mtd, :combined_name)
+						KNOWN_INTERFACES[iface_name][:methods].push_if_hash_is_not_there(mtd, :combined_name)
 					end
 				end
 			end
@@ -222,7 +277,7 @@ module Cak
 			import_typedefs hps.typedefs
 		end
 
-		implementations.push("#include \"#{framework_name}_cak.h\"", "")
+		implementations.push("#include \"#{File.basename CLI_OPTIONS[:output_imp], '.*'}.h\"", "") if not CLI_OPTIONS[:output_imp].nil?
 
 		# now sync up so that all the interfaces would have protocol/base interface methods
 		# for each other
@@ -239,16 +294,13 @@ module Cak
 			['arg', 'int', 'bool'].each do |fg|
 				puts "#include <std#{fg}.h>"
 			end
-			CLI_OPTIONS[:additional_includes].each do |hd|
-				puts "#include \"#{File.basename hd}\""
-			end
 			puts "\n"
 			
 			puts "typedef struct #{OBJC_IFACETYPE_BINDING}* #{OBJC_IFACETYPE_BINDING_REF};\n"
-
-			implementations.push("struct #{OBJC_IFACETYPE_BINDING} { id realThing; };", "")
 		end
 
+		implementations.push("struct #{OBJC_IFACETYPE_BINDING} { id #{OBJC_IFACETYPE_BINDING_PARAM}; };", "")
+		#implementations += (KNOWN_INTERFACES.keys.map { |k| "@class #{k};" })
 
 		KNOWN_INTERFACES.each do |iface_name, iface_vl|
 			# some interfaces could be not defined yet
@@ -256,7 +308,7 @@ module Cak
 				puts "//\n// #{iface_name}\n//\n"
 
 				iface_vl[:methods].each do |mtd|
-					banned = false
+					banned = BLACKLISTED_METHODS.include? "#{iface_name}@#{mtd[:combined_name]}"
 
 					# check if there aren't any blacklisted args
 					BLACKLISTED_METHOD_PARAMS.each do |param|
@@ -269,13 +321,27 @@ module Cak
 				
 					if not banned
 						puts make_c_method(iface_name, mtd)
-						#implementations.push make_c_implementation(iface_name, mtd)
+						implementations.push make_c_implementation(iface_name, mtd)
 					end
+				end
+
+				# also make these crucial bindings
+				['alloc', 'release', 'retain'].each do |subf|
+					mtd_template = { :static => (subf == 'alloc'),
+							 :arguments => [],
+							 :c_friendly_name => subf.camelize,
+							 :return_type => (subf == 'release') ? 'void' : 'id',
+							 :combined_name => subf }
+
+					puts make_c_method(iface_name, mtd_template)
+					implementations.push make_c_implementation(iface_name, mtd_template)
 				end
 
 				puts nil
 			end
 		end
+
+		File.write(CLI_OPTIONS[:output_imp], implementations.join("\n")) if not CLI_OPTIONS[:output_imp].nil?
 	end
 end
 
@@ -291,10 +357,6 @@ if __FILE__ == $0
 			Cak::CLI_OPTIONS[:headers_processed].push_if_not_duplicate(hd)
 		end
 
-		op.on('--additionally-include=HEADER', 'Include this header from the bindings') do |hd|
-			Cak::CLI_OPTIONS[:additional_includes].push_if_not_duplicate(hd)
-		end
-
 		op.on('--output-metainfo=PATH', 'Dump detected ObjC interface metainfo into a TXT file') do |pt|
 			Cak::CLI_OPTIONS[:output_metainfo] = pt
 		end
@@ -307,6 +369,13 @@ if __FILE__ == $0
 							 :origin => '<CLI parameters>',
 							 :type => :interface }
 			end
+		end
+
+		op.on('--blacklist-methods=METHODS', 'Blacklist ObjC inferface methods matching these definitions') do |mtds|
+			mtds.split(',').each do |mtd|
+				raise("Method format for blacklisting: CLASS@METHOD") if not mtd.include? '@'
+				Cak::BLACKLISTED_METHODS.push_if_not_duplicate(mtd)
+			end 
 		end
 
 		op.on('--blacklist-arguments=ARGUMENTS', 'Blacklist ObjC interface methods that have these arguments (do not make bindings for them)') do |pt|

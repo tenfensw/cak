@@ -117,7 +117,7 @@ module Cak
 
 			contents.each do |line_raw|
 				# TODO: polish
-				is_deprecated = line_raw.include? 'API_DEPRECATED('
+				is_deprecated = line_raw.include? 'API_DEPRECATED(' 
 
 				if not line_raw.start_with?('//') and not is_deprecated
 					line_mod = line_raw.remove_xnu_macros.remove_inline_comments.strip
@@ -194,7 +194,7 @@ module Cak
 						raise("Method outside of interface scope, probably a parser error") if current_interface_name.nil?
 
 						method_schema = make_method_schema first_token, line
-						@interfaces[current_interface_name][:methods].push(method_schema)
+						@interfaces[current_interface_name][:methods].push_if_hash_is_not_there(method_schema, :c_friendly_name)
 					when 't'
 						if first_token == 'typedef'
 							# type definition, can be enum or sth

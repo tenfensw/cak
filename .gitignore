@@ -3,5 +3,7 @@
 *~
 *.o
 *.json
-bindings/*.m
-bindings/*.txt
+bindings
+*.log
+demo
+*.dSYM
