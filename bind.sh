@@ -4,6 +4,8 @@ FOUNDATION_PATH=$BASE_PATH/Foundation.framework
 APPKIT_PATH=$BASE_PATH/AppKit.framework
 
 FOUNDATION_BLACKLIST_PARAM="usingComparator:"
+FOUNDATION_HEADERS=`echo Object String Coder Data URL Locale Array Dictionary | xargs printf '\-\-header=NS%s.h '`
+test "$1" = "full-foundation" && FOUNDATION_HEADERS='--header=Foundation.h'
 
 rm -rfv *.dSYM *.bin
 test -d bindings && rm -rfv bindings
@@ -13,18 +15,12 @@ test "$1" = "distclean" && exit 0
 mkdir -vp bindings
 
 # Foundation.framework -> minifoundation
-ruby make_c_bindings.rb -f"$FOUNDATION_PATH" --header=NSObject.h \
-					     --header=NSString.h \
-					     --header=NSCoder.h \
-					     --header=NSData.h \
-					     --header=NSURL.h \
-					     --header=NSLocale.h \
-					     --header=NSArray.h \
-					     --header=NSDictionary.h \
-					     -v --blacklist-arguments="$FOUNDATION_BLACKLIST_PARAM" \
-					     --blacklist-methods="NSLocale@init" \
-					     --output-metainfo=bindings/minifoundation.txt \
-					     --output-implementation=bindings/minifoundation.m > bindings/minifoundation.h
+
+/usr/bin/ruby make_c_bindings.rb -f"$FOUNDATION_PATH" $FOUNDATION_HEADERS \
+				 -v --blacklist-arguments="$FOUNDATION_BLACKLIST_PARAM" \
+				 --blacklist-methods="NSLocale@init" \
+				 --output-metainfo=bindings/minifoundation.txt \
+				 --output-implementation=bindings/minifoundation.m > bindings/minifoundation.h
 
 clang -c -o bindings/minifoundation.o -Wno-incompatible-pointer-types -Wno-objc-method-access \
 				      -Wno-return-type -Wno-format-security -fno-objc-arc \
