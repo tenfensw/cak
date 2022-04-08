@@ -3,14 +3,19 @@ typedef struct _NSRange NSRange; // TODO: fix
 #include <stdio.h>
 #include "minifoundation.h"
 
-#define kCakOIDNSUnicodeStringEncoding 10
-
 int main() {
+	const char* pathChecked = "/usr/bin/ruby"; // exists on all Macs
 
-	CakOIDRef testString = CakOIDNSStringInitWithUTF8String(CakOIDNSStringAlloc(), "Greetings from Cak!");
+	// convert this to NSString*
+	CakOIDRef pathCheckedAsString = CakOIDNSStringStringWithUTF8String(pathChecked);
 
-	printf("%s\n", CakOIDNSStringCStringUsingEncoding(testString, kCakOIDNSUnicodeStringEncoding));
+	// now make an NSURL*
+	CakOIDRef pathCheckedAsURL = CakOIDNSURLFileURLWithPath(pathCheckedAsString);
+	if (CakOIDNSURLCheckResourceIsReachableAndReturnError(pathCheckedAsURL, NULL))
+		printf("%s is reachable\n", pathChecked);
 
-	CakOIDNSStringRelease(testString);
+	// free the memory
+	CakOIDNSURLRelease(pathCheckedAsURL);
+	CakOIDNSStringRelease(pathCheckedAsString);
 	return 0;
 }

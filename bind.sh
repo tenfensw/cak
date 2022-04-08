@@ -21,6 +21,9 @@ mkdir -vp bindings
 				 --blacklist-methods="NSLocale@init" \
 				 --output-metainfo=bindings/minifoundation.txt \
 				 --output-implementation=bindings/minifoundation.m > bindings/minifoundation.h
+# allow direct access just in case
+echo "void* CakOIDGetDirect(CakOIDRef vl);" >> bindings/minifoundation.h
+echo "void* CakOIDGetDirect(CakOIDRef vl) { return (vl ? vl->rth : NULL); }" >> bindings/minifoundation.m
 
 clang -c -o bindings/minifoundation.o -Wno-incompatible-pointer-types -Wno-objc-method-access \
 				      -Wno-return-type -Wno-format-security -fno-objc-arc \
