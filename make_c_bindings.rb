@@ -10,6 +10,8 @@ module Cak
 			:output_imp => nil,
 			:oid_definition => true }
 
+	ALLOW_PROPERTIES = false # experimental
+
 	OBJC_IFACETYPE_BINDING = 'CakOID'
 	OBJC_IFACETYPE_BINDING_REF = "#{OBJC_IFACETYPE_BINDING}Ref"
 	OBJC_IFACETYPE_BINDING_ARGN = 'oidObjPInstance'
@@ -43,7 +45,8 @@ module Cak
 				    }
 
 	OBJC_KEYWORD_BLACKLIST = [ '_Nonnull', '__unsafe_unretained', '_Nullable',
-				   'nullable', 'inout', 'out', 'null_unspecified' ]
+				   'nullable', 'inout', 'out', 'null_unspecified',
+				   'nonnull' ]
 
 	KNOWN_INTERFACES = {}
 

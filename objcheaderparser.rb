@@ -185,6 +185,42 @@ module Cak
 									@interfaces[oname] = nil
 								end
 							end
+						elsif first_token == '@property' and Cak::ALLOW_PROPERTIES
+							# property is basically a method
+							property_has_setter = line.shift.include? 'readonly'
+
+							# TODO: remove those flags properly
+							line.pop if line.last.start_with? 'NS_'
+
+							property_name = line.pop
+							# TODO: just fix the parser to get rid of the gsub
+							property_type = line.join(' ').remove_all_objc_enclosures.strip
+							Cak.nputs("property_type = ", property_type, " original: #{line.join}")
+
+							if current_interface_name.nil?
+								Cak.nputs("warning! @property #{property_name} outside interface definition")
+							else
+								# getter
+								property_getter_mtd = { :static => false,
+											:return_type => property_type,
+											:arguments => [],
+											:combined_name => property_name,
+											:c_friendly_name => property_name.camelize }
+
+								# setter
+								property_setter_mtd = { :static => false,
+											:return_type => 'void',
+											:arguments => [ { :name => "setAsValue", :type => property_type } ],
+											:combined_name => "set#{property_name.camelize}",
+											:c_friendly_name => "Set#{property_name.camelize}" }
+
+								to_add = [ property_getter_mtd ]
+								to_add.push(property_setter_mtd) if property_has_setter
+
+								to_add.each do |mtd|
+									@interfaces[current_interface_name][:methods].push_if_hash_is_not_there(mtd, :c_friendly_name)
+								end
+							end
 						elsif first_token == '@end'
 							Cak.nputs("warning! @end specified when not in block") if current_interface_name.nil?
 							current_interface_name = nil
