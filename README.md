@@ -66,7 +66,7 @@ CakOIDNSURLRelease(baseURL);
 CakOIDNSURLRelease(URL);
 ```
 
-Notice that (obviously) Objnuall ective-C's ARC is not possible in C, so you have to manage memory with ``Retain`` and ``Release`` manually.
+Notice that (obviously) Objective-C's ARC is not possible in C, so you have to manage memory with ``Retain`` and ``Release`` manually.
 
 To link:
 
