@@ -39,5 +39,6 @@ ruby make_c_bindings.rb -f"$APPKIT_PATH" --output-metainfo=bindings/cakappkit.tx
 					 --output-implementation=bindings/cakappkit.m \
 					 $APPKIT_PREDEFINED_CLASSES \
 					 --header=NSPanel.h \
+					 --header=NSApplication.h \
 					 --no-oid-definition \
 					 -v >> bindings/cakappkit.h

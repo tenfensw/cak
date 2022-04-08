@@ -174,7 +174,7 @@ module Cak
 				if arg[:type] == OBJC_IFACETYPE_BINDING_REF
 					# access the underlying ObjC class instance in this case
 					to_add.pop
-					to_add.push("#{arg[:name]}->#{OBJC_IFACETYPE_BINDING_PARAM}")
+					to_add.push("(#{arg[:name]} ? #{arg[:name]}->#{OBJC_IFACETYPE_BINDING_PARAM} : nil)")
 				end
 				fun_result += ' ' + to_add.join(':')
 			end
@@ -357,15 +357,17 @@ module Cak
 				end
 
 				# also make these crucial bindings
-				['alloc', 'release', 'retain'].each do |subf|
-					mtd_template = { :static => (subf == 'alloc'),
-							 :arguments => [],
-							 :c_friendly_name => subf.camelize,
-							 :return_type => (subf == 'release') ? 'void' : 'id',
-							 :combined_name => subf }
+				if not iface_vl[:methods].empty?
+					['alloc', 'release', 'retain'].each do |subf|
+						mtd_template = { :static => (subf == 'alloc'),
+								 :arguments => [],
+								 :c_friendly_name => subf.camelize,
+								 :return_type => (subf == 'release') ? 'void' : 'id',
+								 :combined_name => subf }
 
-					puts make_c_method(iface_name, mtd_template)
-					implementations.push make_c_implementation(iface_name, mtd_template)
+						puts make_c_method(iface_name, mtd_template)
+						implementations.push make_c_implementation(iface_name, mtd_template)
+					end
 				end
 
 				puts nil
