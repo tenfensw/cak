@@ -10,7 +10,7 @@ You'll need:
 
 - Ruby 2.0+ (built-in in macOS)
 - Xcode Command Line Tools 
-  - Regular Xcode 10+ should work too, but it was not tested & you'll have to specify the ``BASE_PATH`` environment variable to the path where ``MacOSX.sdk/Frameworks`` is in Xcode.app, that's pain so just install CLI tools instead
+  - For Xcode 10+ (without the CLI tools), do this: ``export BASE_PATH=/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/Foundation.framework/Headers`` 
 
 ```bash
 git clone https://github.com/tenfensw/cak.git
